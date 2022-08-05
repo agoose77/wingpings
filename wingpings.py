@@ -5,29 +5,48 @@ import datetime
 import argparse
 
 
-messages = []
-
-
 class ChatHandler(http.server.BaseHTTPRequestHandler):
-    def view(self):
-        data = [{**f, "received": t} for f, t in messages]
-        return "\n".join(
-            [
-                "HTTP/1.1 200 OK",
-                "Content-type: text/html",
-                "",
-                "<style>.message > * {padding: 1em;} </style>",
-                "<div>",
-                *[
-                    '<div class="message"><span class="received">{received}</span><span class="name">{name}</span><span class="message">{message}</span></div>'.format_map(
-                        m
-                    )
-                    for m in data
-                ],
-                "</div>",
-                '<form method="POST" action=""><input name="name" type="text"><input name="message" type=text><input type=submit></form>',
-            ]
+    messages = []
+
+    def write_response(self):
+        messages = [
+            """
+<div class="message">
+    <span class="received">{received}</span>
+    <span class="name">{name}</span>
+    <span class="message">{message}</span>
+</div>
+            """.format_map(
+                {**f, "received": t}
+            )
+            for f, t in self.messages
+        ]
+        message_log = "\n".join(messages)
+        contents = f"""
+<html>
+<head>
+<style>
+    .message > * {{
+        padding: 1em;
+    }} 
+</style>
+</head>
+<body>
+    <div>
+        { message_log }
+    </div>
+
+    <form method="POST" action="">
+        <input name="name" type="text">
+        <input name="message" type="text">
+        <input type="submit">
+    </form>
+</body>
+        """
+        response = "\n".join(
+            ["HTTP/1.1 200 OK", "Content-type: text/html", "", contents]
         )
+        self.wfile.write(response.encode())
 
     def parse_form(self, content):
         raw_items = [l.split("=", 1) for l in content.split("&")]
@@ -37,16 +56,20 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
         ]
         return dict(items)
 
+    def handle_message(self, message):
+        if not self.messages or message != self.messages[-1][0]:
+            self.messages.append((message, datetime.datetime.now().time()))
+
     def do_GET(self):
-        self.wfile.write(self.view().encode())
+        self.write_response()
 
     def do_POST(self):
-        data = self.rfile.read(int(self.headers["Content-Length"])).decode()
-        form = self.parse_form(data)
-        print(form)
-        if not messages or form != messages[-1][0]:
-            messages.append((form, datetime.datetime.now().time()))
-        self.wfile.write(self.view().encode())
+        n_bytes = int(self.headers["Content-Length"])
+        form_data = self.rfile.read(n_bytes).decode()
+        form = self.parse_form(form_data)
+
+        self.handle_message(form)
+        self.write_response()
 
 
 if __name__ == "__main__":
